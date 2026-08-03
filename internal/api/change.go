@@ -32,9 +32,10 @@ func (s *Server) handleDeviceChange(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "no such device: " + r.PathValue("name")})
 		return
 	}
-	if s.deviceBusy(w, dev.Name) {
+	if !s.beginWrite(w, dev.Name) {
 		return
 	}
+	defer s.releaseFleetWrite(dev.Name)
 
 	var body struct {
 		SSID *struct {

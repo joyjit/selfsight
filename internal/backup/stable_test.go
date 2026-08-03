@@ -75,3 +75,34 @@ func TestDiffHidesBookkeeping(t *testing.T) {
 		t.Errorf("real change missing from diff:\n%s", d)
 	}
 }
+
+// The admin password hash is not a re-wrapped blob, so the placeholder does
+// not catch it — history must still never carry its value.
+func TestStableConfigMasksSecretKeys(t *testing.T) {
+	cfg := "system:basicSettings:adminName admin\n" +
+		"system:basicSettings:adminPasswd $5$salt$realhashvalue\n" +
+		"system:basicSettings:apName Home\n"
+	got := string(StableConfig([]byte(cfg)))
+
+	if strings.Contains(got, "realhashvalue") {
+		t.Fatalf("the admin password hash must not reach history:\n%s", got)
+	}
+	if !strings.Contains(got, "adminPasswd «redacted:") {
+		t.Errorf("the key must stay, with a fingerprint for its value:\n%s", got)
+	}
+	// The fingerprint is stable, so an unchanged password is not a diff...
+	if again := string(StableConfig([]byte(cfg))); again != got {
+		t.Error("an unchanged secret must produce an identical view")
+	}
+	// ...but a changed one still shows up as a change.
+	changed := strings.Replace(cfg, "realhashvalue", "differenthash", 1)
+	if string(StableConfig([]byte(changed))) == got {
+		t.Error("a changed password must still show as a change")
+	}
+	// Non-secret lines are untouched.
+	for _, keep := range []string{"adminName admin", "apName Home"} {
+		if !strings.Contains(got, keep) {
+			t.Errorf("non-secret line altered: %q missing", keep)
+		}
+	}
+}

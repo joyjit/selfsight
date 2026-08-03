@@ -37,6 +37,14 @@ type Server struct {
 	mu       sync.Mutex
 	managers map[string]*deviceManager
 	upgrades map[string]*upgradeState
+	// fleetWrite names the device currently being written to, "" when none.
+	// Writes are strictly one access point at a time across the whole fleet
+	// (AGENTS.md, hard rules): a wireless write bounces the radio, so two at
+	// once can take down the very network the dashboard is reached over, and
+	// a half-applied pair is much harder to reason about than a queue.
+	// Guarded by mu, and interlocked with upgrades — neither may start while
+	// the other holds the fleet.
+	fleetWrite string
 
 	// Event-log state (eventlog.go): eventMu serializes log-file writes;
 	// eventStateMu guards the in-memory last-known facts the log lines are
@@ -56,9 +64,16 @@ type Server struct {
 	codec device.Codec
 }
 
-// ServeHTTP makes Server an http.Handler. Every request passes the auth gate
-// first (a no-op unless server.auth is configured).
+// ServeHTTP makes Server an http.Handler. Every request passes three gates
+// first: the browser-side security headers go on every response, a request
+// that changes something must prove it came from this site (never from
+// another one the user has open), and then the auth gate — a no-op unless
+// server.auth is configured.
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	setSecurityHeaders(w)
+	if !s.requireSameSite(w, r) {
+		return
+	}
 	if !s.requireAuth(w, r) {
 		return
 	}
@@ -191,7 +206,27 @@ func (s *Server) swapConfig(cfg *core.Config) {
 	if old.Server.Auth != nil && cfg.Server.Auth == nil {
 		warnIfAuthOff(cfg) // warn on the transition, not on every device edit
 	}
+	if authChanged(old, cfg) {
+		// Sessions were minted under the old setting; changing the password
+		// (or turning auth on or off) has to actually evict whoever is
+		// already logged in, or a rotation would protect nothing.
+		s.clearSessions()
+	}
 	s.dropStaleManagers(old, cfg)
+}
+
+// authChanged reports whether the dashboard login differs between two config
+// snapshots — a different password, or auth added or removed.
+func authChanged(old, cur *core.Config) bool {
+	a, b := old.Server.Auth, cur.Server.Auth
+	switch {
+	case a == nil && b == nil:
+		return false
+	case a == nil || b == nil:
+		return true
+	default:
+		return a.Password != b.Password
+	}
 }
 
 // warnIfAuthOff makes an unauthenticated deployment a deliberate choice: the
@@ -251,7 +286,12 @@ func (s *Server) handleDeviceDrift(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, code, errBody)
 		return
 	}
-	report := core.ComputeDrift(dev.Desired, observedSSIDs(status), observedRadios(status))
+	dm := s.managerFor(dev)
+	dm.mu.Lock()
+	ssids := withPassphraseMatch(r.Context(), dm.mgr, dev.Desired, observedSSIDs(status))
+	dm.mu.Unlock()
+
+	report := core.ComputeDrift(dev.Desired, ssids, observedRadios(status))
 	writeJSON(w, http.StatusOK, report)
 }
 
@@ -261,9 +301,11 @@ func (s *Server) handleDeviceBackup(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "no such device: " + r.PathValue("name")})
 		return
 	}
-	if s.deviceBusy(w, dev.Name) {
+	if !s.beginWrite(w, dev.Name) {
 		return
 	}
+	defer s.releaseFleetWrite(dev.Name)
+
 	dm := s.managerFor(dev)
 	dm.mu.Lock()
 	defer dm.mu.Unlock()
@@ -273,9 +315,18 @@ func (s *Server) handleDeviceBackup(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error(), "device": dev.Name})
 		return
 	}
+	// The archive is on disk either way; post-processing (decrypt to the
+	// stored form, snapshot into history) is what may still fail. Say so
+	// rather than reporting a clean success — a backup nobody can read back
+	// is not the backup the user asked for.
 	path, err = s.finishBackup(dev, path, time.Now())
 	if err != nil {
-		log.Printf("backup %s: %v", dev.Name, err) // best-effort
+		log.Printf("backup %s: %v", dev.Name, err)
+		writeJSON(w, http.StatusBadGateway, map[string]string{
+			"device": dev.Name, "backup": path,
+			"error": "the archive was downloaded but could not be processed: " + err.Error(),
+		})
+		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"device": dev.Name, "backup": path})
 }
@@ -289,9 +340,11 @@ func (s *Server) handleSetName(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "no such device: " + r.PathValue("name")})
 		return
 	}
-	if s.deviceBusy(w, dev.Name) {
+	if !s.beginWrite(w, dev.Name) {
 		return
 	}
+	defer s.releaseFleetWrite(dev.Name)
+
 	var body struct {
 		Name string `json:"name"`
 	}
@@ -349,9 +402,11 @@ func (s *Server) handleDeviceRestore(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "no such device: " + r.PathValue("name")})
 		return
 	}
-	if s.deviceBusy(w, dev.Name) {
+	if !s.beginWrite(w, dev.Name) {
 		return
 	}
+	defer s.releaseFleetWrite(dev.Name)
+
 	var body struct {
 		File                 string `json:"file"`
 		AcceptPasswordRevert bool   `json:"acceptPasswordRevert"`
@@ -494,11 +549,7 @@ func (s *Server) checkSerial(ctx context.Context, w http.ResponseWriter, dev *co
 
 // deviceDataDir is where a device's backups live: <dataDir>/backups/<device>.
 func (s *Server) deviceDataDir(name string) string {
-	base := s.dataDir
-	if base == "" {
-		base = "data"
-	}
-	return filepath.Join(base, "backups", name)
+	return filepath.Join(s.baseDir(), "backups", name)
 }
 
 // fetchStatus reads a device's live status under its per-device lock, mapping a
@@ -553,6 +604,29 @@ func observedSSIDs(st *device.Status) []core.ObservedSSID {
 	return out
 }
 
+// withPassphraseMatch answers the one declared field a status read cannot: for
+// each SSID that declares a passphrase, whether the device's key is that
+// passphrase. It asks the driver, which compares internally and hands back
+// only the verdict. A read that fails leaves the answer unset — drift then
+// reports "unknown" rather than inventing one. Must be called with the
+// device's manager lock held.
+func withPassphraseMatch(ctx context.Context, drv device.Driver, d core.Desired, observed []core.ObservedSSID) []core.ObservedSSID {
+	for i := range observed {
+		for _, want := range d.SSIDs {
+			if want.Name != observed[i].Name || want.Passphrase == "" {
+				continue
+			}
+			match, err := drv.MatchPassphrase(ctx, want.Name, want.Passphrase)
+			if err != nil {
+				log.Printf("drift %s: checking passphrase: %v", want.Name, err)
+				continue
+			}
+			observed[i].PassphraseMatch = &match
+		}
+	}
+	return observed
+}
+
 func observedRadios(st *device.Status) []core.ObservedRadio {
 	if st.System == nil {
 		return nil
@@ -604,19 +678,40 @@ func (s *Server) managerFor(dev *core.Device) *deviceManager {
 // It does not require the host to be in the inventory — the add-device
 // connection test uses it for a device that isn't configured yet, warming
 // the very session the real driver will reuse once the device is added.
+//
+// Certificate pinning is never optional: a driver without it would accept any
+// certificate the AP (or something posing as it) presents. So when there is no
+// user cache directory to put the pin in — a container with no home, say — the
+// caches go under the data directory instead of pinning being dropped.
 func (s *Server) newManager(host, user, pass string) device.Driver {
-	sessPath, _ := wax.DefaultSessionPath(host)
-	opts := managerOpts
-	if pinPath, err := wax.DefaultPinPath(host); err == nil {
-		opts = append(append([]wax.Option{}, opts...), wax.WithPinPath(pinPath))
+	base, err := wax.DefaultCacheDir()
+	if err != nil {
+		base = filepath.Join(s.baseDir(), ".wax-cache")
+		log.Printf("no user cache directory (%v); keeping session and certificate pins in %s", err, base)
 	}
-	return wax.NewManager(host, sessPath, user, pass, opts...)
+	opts := append(append([]wax.Option{}, managerOpts...), wax.WithPinPath(wax.PinPathIn(base, host)))
+	return wax.NewManager(host, wax.SessionPathIn(base, host), user, pass, opts...)
+}
+
+// baseDir is the data directory, with the default filled in.
+func (s *Server) baseDir() string {
+	if s.dataDir == "" {
+		return "data"
+	}
+	return s.dataDir
 }
 
 func (s *Server) handleDiscover(w http.ResponseWriter, r *http.Request) {
 	cidr := r.URL.Query().Get("cidr")
 	if cidr == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "missing ?cidr= (e.g. 192.168.1.0/24)"})
+		return
+	}
+	// A sweep dials every address in the range, so the range has to be a local
+	// network — otherwise this endpoint is a way to make the server knock on
+	// arbitrary doors elsewhere.
+	if err := discovery.CheckLocalRange(cidr); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
 	found, err := discovery.Sweep(r.Context(), cidr, 64, 1500*time.Millisecond)

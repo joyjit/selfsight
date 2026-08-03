@@ -25,6 +25,7 @@ raw-capture*/
 !/PLAN.md
 !/AGENTS.md
 !/CLAUDE.md
+!/SECURITY.md
 
 # Frontend
 node_modules/

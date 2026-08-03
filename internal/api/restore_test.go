@@ -135,7 +135,7 @@ func restoreServer(t *testing.T, snapshot []byte) (*Server, *restoreFake) {
 func postRestore(t *testing.T, s *Server, body string) *httptest.ResponseRecorder {
 	t.Helper()
 	rr := httptest.NewRecorder()
-	s.ServeHTTP(rr, httptest.NewRequest(http.MethodPost, "/api/devices/ap1/restore", strings.NewReader(body)))
+	s.ServeHTTP(rr, apiRequest(http.MethodPost, "/api/devices/ap1/restore", strings.NewReader(body)))
 	return rr
 }
 

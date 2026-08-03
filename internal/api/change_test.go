@@ -12,7 +12,7 @@ import (
 func postChange(t *testing.T, s *Server, body string) *httptest.ResponseRecorder {
 	t.Helper()
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/devices/ap1/change", strings.NewReader(body))
+	req := apiRequest(http.MethodPost, "/api/devices/ap1/change", strings.NewReader(body))
 	s.ServeHTTP(rr, req)
 	return rr
 }

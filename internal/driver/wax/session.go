@@ -30,14 +30,20 @@ type Session struct {
 // Valid reports whether the session has both secrets.
 func (s Session) Valid() bool { return s.Token != "" && s.LHTTPDSID != "" }
 
-// DefaultSessionPath is where a session for host is cached, under the user cache
-// dir (e.g. ~/.cache/selfsight/wax-192.0.2.20.json).
+// DefaultSessionPath is where a session for host is cached, under the user
+// cache dir (e.g. ~/.cache/selfsight/wax-3f7a1c9d8e2b4a06.json).
 func DefaultSessionPath(host string) (string, error) {
-	base, err := os.UserCacheDir()
+	base, err := DefaultCacheDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(base, "selfsight", "wax-"+host+".json"), nil
+	return SessionPathIn(base, host), nil
+}
+
+// SessionPathIn is DefaultSessionPath under an explicit cache directory, for a
+// deployment that has no user cache dir of its own.
+func SessionPathIn(base, host string) string {
+	return filepath.Join(base, "wax-"+hostKey(host)+".json")
 }
 
 // LoadSession reads a persisted session. A missing file returns (zero, nil) so

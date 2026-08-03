@@ -78,6 +78,40 @@ func probe(ctx context.Context, ip string, port string, timeout time.Duration) (
 // network these APs live on, and minutes of scanning.
 const MaxSweepHosts = 1 << 16
 
+// localPrefixes is the address space an access point can actually live in:
+// the private ranges, loopback, and link-local — IPv4 and IPv6. These are
+// fixed assignments from the standards, not a heuristic.
+var localPrefixes = []netip.Prefix{
+	netip.MustParsePrefix("10.0.0.0/8"),
+	netip.MustParsePrefix("172.16.0.0/12"),
+	netip.MustParsePrefix("192.168.0.0/16"),
+	netip.MustParsePrefix("127.0.0.0/8"),
+	netip.MustParsePrefix("169.254.0.0/16"),
+	netip.MustParsePrefix("fc00::/7"),  // unique local
+	netip.MustParsePrefix("fe80::/10"), // link local
+	netip.MustParsePrefix("::1/128"),   // loopback
+}
+
+// CheckLocalRange reports whether cidr lies wholly inside the local address
+// space above. A sweep is the one place selfsight opens connections to
+// addresses a caller names outright, so it must not be usable as a probe of
+// the wider internet (or of a cloud provider's metadata service) from
+// wherever this server happens to sit. An AP is on the LAN by definition, so
+// refusing everything else costs nothing.
+func CheckLocalRange(cidr string) error {
+	p, err := netip.ParsePrefix(cidr)
+	if err != nil {
+		return fmt.Errorf("discovery: bad CIDR %q: %w", cidr, err)
+	}
+	p = p.Masked()
+	for _, local := range localPrefixes {
+		if local.Bits() <= p.Bits() && local.Contains(p.Addr()) {
+			return nil
+		}
+	}
+	return fmt.Errorf("discovery: %s is outside the private, loopback and link-local ranges — selfsight only scans local networks", cidr)
+}
+
 // Sweep probes every host in cidr concurrently and returns the WAX APs found,
 // sorted by IP. The network and broadcast addresses are skipped.
 func Sweep(ctx context.Context, cidr string, concurrency int, timeout time.Duration) ([]Candidate, error) {

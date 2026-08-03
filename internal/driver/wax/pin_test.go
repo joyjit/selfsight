@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -49,5 +50,39 @@ func TestPinnedClientTalksTLS(t *testing.T) {
 		if err := c.socket(context.Background(), `{}`, nil); err != nil {
 			t.Fatalf("pinned connection %d failed: %v", i+1, err)
 		}
+	}
+}
+
+// A host names two cache files. Hashing it means no address — however odd, and
+// whatever validation upstream may have missed — can steer one of those files
+// out of its directory, and a fleet's addresses stay off the filesystem.
+func TestCachePathsAreSafeAndStable(t *testing.T) {
+	base := "/tmp/cache"
+	hosts := []string{
+		"192.0.2.20", "192.0.2.20:8443", "ap1.example.com",
+		"../../etc/passwd", "a/b/c", "..", strings.Repeat("x", 300),
+	}
+	seen := map[string]string{}
+	for _, host := range hosts {
+		for _, p := range []string{PinPathIn(base, host), SessionPathIn(base, host)} {
+			if filepath.Dir(p) != base {
+				t.Errorf("host %q escaped the cache directory: %s", host, p)
+			}
+			if strings.Contains(p, host) && len(host) > 3 {
+				t.Errorf("host %q should not appear in its cache path: %s", host, p)
+			}
+			if prev, dup := seen[p]; dup && prev != host {
+				t.Errorf("hosts %q and %q share a cache file %s", prev, host, p)
+			}
+			seen[p] = host
+		}
+	}
+	// Stable, so a device keeps its own cache across restarts.
+	if PinPathIn(base, "ap1") != PinPathIn(base, "ap1") {
+		t.Error("a host's cache path must not change between calls")
+	}
+	// A pin and a session are separate files.
+	if PinPathIn(base, "ap1") == SessionPathIn(base, "ap1") {
+		t.Error("pin and session must be separate files")
 	}
 }

@@ -92,6 +92,9 @@ func (s *Server) claimUpgrade(name string) (*upgradeState, string, bool) {
 	if busy, running := s.runningUpgradeLocked(); running {
 		return nil, busy, false
 	}
+	if s.fleetWrite != "" {
+		return nil, s.fleetWrite, false // an ordinary write holds the fleet
+	}
 	if s.upgrades == nil {
 		s.upgrades = map[string]*upgradeState{}
 	}
@@ -113,21 +116,87 @@ func releaseUpgrade(u *upgradeState) {
 	u.mu.Unlock()
 }
 
-// deviceBusy answers 503 (with progress detail) when the device is mid-
-// firmware-upgrade — its manager lock is held for the whole flash, so any
-// other operation would silently hang for minutes instead.
+// claimFleetWrite atomically reserves the fleet's single write slot for name.
+// It fails while any device is upgrading, and while any device (this one
+// included) is already being written to — a second write to the same AP would
+// otherwise queue on its manager lock and take an unrelated fresh backup
+// against a config that is mid-change. Returns the device holding the slot and
+// false when it is taken.
+func (s *Server) claimFleetWrite(name string) (string, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.fleetWrite != "" {
+		return s.fleetWrite, false
+	}
+	if busy, running := s.runningUpgradeLocked(); running {
+		return busy, false
+	}
+	s.fleetWrite = name
+	return "", true
+}
+
+// releaseFleetWrite hands the slot back. It only clears a claim this device
+// still holds, so a late release can never free somebody else's.
+func (s *Server) releaseFleetWrite(name string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.fleetWrite == name {
+		s.fleetWrite = ""
+	}
+}
+
+// fleetWriteHolder names the device currently being written to.
+func (s *Server) fleetWriteHolder() (string, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.fleetWrite, s.fleetWrite != ""
+}
+
+// beginWrite is the gate every operation that writes to an access point opens
+// with. It answers the request itself and returns false when the fleet is
+// busy. On success the caller holds the fleet's write slot and must give it
+// back:
+//
+//	if !s.beginWrite(w, dev.Name) {
+//		return
+//	}
+//	defer s.releaseFleetWrite(dev.Name)
+func (s *Server) beginWrite(w http.ResponseWriter, name string) bool {
+	if s.deviceBusy(w, name) {
+		return false
+	}
+	busy, ok := s.claimFleetWrite(name)
+	if !ok {
+		writeJSON(w, http.StatusConflict, map[string]string{
+			"error": "a change is already being written to " + busy + " — selfsight writes to one access point at a time",
+		})
+		return false
+	}
+	return true
+}
+
+// deviceBusy reports (and answers) that this device cannot be touched right
+// now: it is mid-firmware-upgrade — its manager lock is held for the whole
+// flash, so anything else would silently hang for minutes — or the fleet's
+// write slot is held by a change going onto some device.
 func (s *Server) deviceBusy(w http.ResponseWriter, name string) bool {
 	u := s.upgradeFor(name)
 	u.mu.Lock()
 	running := u.Running
 	u.mu.Unlock()
-	if !running {
-		return false
+	if running {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{
+			"error": "firmware upgrade in progress on " + name, "progress": u.view(),
+		})
+		return true
 	}
-	writeJSON(w, http.StatusServiceUnavailable, map[string]any{
-		"error": "firmware upgrade in progress on " + name, "progress": u.view(),
-	})
-	return true
+	if busy, held := s.fleetWriteHolder(); held {
+		writeJSON(w, http.StatusConflict, map[string]string{
+			"error": "a change is already being written to " + busy + " — selfsight writes to one access point at a time",
+		})
+		return true
+	}
+	return false
 }
 
 // handleFirmwareCheck asks the AP to query the vendor cloud for a newer image

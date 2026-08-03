@@ -19,8 +19,11 @@
 
 server:
   listen: ":8080"          # optional; this is the default
-  # auth:                  # optional: password-protect the dashboard/API.
-  #   password: ${SELFSIGHT_AUTH_PASSWORD}  # recommended before enabling writes
+  # Password-protects the dashboard and the whole API. Keep it on: this server
+  # holds your AP admin passwords and its backups contain WiFi passphrases.
+  # Set SELFSIGHT_AUTH_PASSWORD in .env; an unset variable fails at startup.
+  auth:
+    password: ${SELFSIGHT_AUTH_PASSWORD}
   #
   # Backups are taken when a device's config changes — before any change
   # selfsight makes, when it detects one made on the AP directly, and on demand

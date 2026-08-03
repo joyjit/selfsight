@@ -142,7 +142,7 @@ func TestRestoreEndpointRequiresExistingArchive(t *testing.T) {
 	s := schedulerServer(t, ts)
 
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/devices/ap1/restore", strings.NewReader(`{"file":"nope.tar"}`))
+	req := apiRequest(http.MethodPost, "/api/devices/ap1/restore", strings.NewReader(`{"file":"nope.tar"}`))
 	s.ServeHTTP(rr, req)
 	if rr.Code != http.StatusNotFound {
 		t.Fatalf("restore of a nonexistent archive must 404, got %d: %s", rr.Code, rr.Body.String())

@@ -81,6 +81,7 @@ func UpdateDevice(path, name string, dev Device) (*Config, error) {
 				dev.Serial = v.Value
 			}
 		}
+		preserveSSIDPassphrases(devices.Content[idx], &dev)
 		n, err := encodeDevice(dev)
 		if err != nil {
 			return err
@@ -88,6 +89,38 @@ func UpdateDevice(path, name string, dev Device) (*Config, error) {
 		devices.Content[idx] = n
 		return nil
 	})
+}
+
+// preserveSSIDPassphrases carries each declared SSID's stored passphrase
+// forward when the incoming entry leaves it blank. Blank means "unchanged",
+// the same rule as the device password and for the same reason: the dashboard
+// is never sent the current passphrase, so it cannot send one back. Read from
+// the RAW file node, so a `${VAR}` reference survives as a reference rather
+// than being written out as the expanded secret.
+func preserveSSIDPassphrases(entry *yaml.Node, dev *Device) {
+	desired := mappingValue(entry, "desired")
+	if desired == nil {
+		return
+	}
+	ssids := mappingValue(desired, "ssids")
+	if ssids == nil || ssids.Kind != yaml.SequenceNode {
+		return
+	}
+	stored := map[string]string{}
+	for _, node := range ssids.Content {
+		if node.Kind != yaml.MappingNode {
+			continue
+		}
+		name, pass := mappingValue(node, "name"), mappingValue(node, "passphrase")
+		if name != nil && pass != nil {
+			stored[name.Value] = pass.Value
+		}
+	}
+	for i := range dev.Desired.SSIDs {
+		if dev.Desired.SSIDs[i].Passphrase == "" {
+			dev.Desired.SSIDs[i].Passphrase = stored[dev.Desired.SSIDs[i].Name]
+		}
+	}
 }
 
 // editConfigFile parses the config document, hands the `devices` sequence node

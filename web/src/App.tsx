@@ -509,9 +509,21 @@ function DeviceDetailDrawer({
   // Deleting an SSID from the AP itself — guarded write (backup first,
   // read-back verified server-side; the primary SSID is refused there).
   const [ssidToDelete, setSsidToDelete] = useState<string | null>(null);
+  const [delNote, setDelNote] = useState("");
   const delSsid = useMutation({
     mutationFn: (ssid: string) => deleteDeviceSSID(device.name, ssid),
-    onSuccess: () => {
+    onSuccess: (res) => {
+      // A refusal, or a delete the read-back could not confirm, comes back as
+      // a body rather than a thrown error — show it instead of closing the
+      // dialog as though the network were gone.
+      if (res.error || res.applied === false) {
+        setDelNote(
+          res.error ??
+            "the AP still reports this network — the delete was not confirmed",
+        );
+        return;
+      }
+      setDelNote("");
       setSsidToDelete(null);
       qc.invalidateQueries();
       onApplied();
@@ -912,14 +924,17 @@ function DeviceDetailDrawer({
           >
             + Add network
           </Button>
-          {delSsid.isError && (
+          {(delSsid.isError || delNote) && (
             <Text size="sm" c="red">
-              {(delSsid.error as Error).message}
+              {delNote || (delSsid.error as Error).message}
             </Text>
           )}
           <ConfirmModal
             opened={ssidToDelete !== null}
-            onClose={() => setSsidToDelete(null)}
+            onClose={() => {
+              setSsidToDelete(null);
+              setDelNote("");
+            }}
             device={ssidToDelete ?? ""}
             title={`Delete SSID ${ssidToDelete} from ${device.name}`}
             confirmLabel="Delete from AP"
@@ -934,9 +949,9 @@ function DeviceDetailDrawer({
               first, and the result is verified by read-back. The AP's primary
               network cannot be deleted.
             </Text>
-            {delSsid.isError && (
+            {(delSsid.isError || delNote) && (
               <Text size="sm" c="red" mt="xs">
-                {(delSsid.error as Error).message}
+                {delNote || (delSsid.error as Error).message}
               </Text>
             )}
           </ConfirmModal>
@@ -1192,18 +1207,19 @@ function SSIDEditorModal({
   };
   const dirty = Object.keys(onceChange()).length > 1;
 
-  // The enforce exit declares exactly what the form shows. A blank
-  // passphrase keeps an already-declared one.
+  // The enforce exit declares exactly what the form shows. A blank passphrase
+  // is left out entirely, which the server reads as "keep the declared one" —
+  // the browser is never sent the stored value to echo back.
   const managedDecl = (): Partial<DeclaredSSID> => ({
     security: security ?? undefined,
-    passphrase: passphrase || declared?.passphrase || undefined,
+    passphrase: passphrase || undefined,
     vlan: vlan || undefined,
     hidden,
     enabled,
   });
 
   const needsKey =
-    security !== null && security !== "open" && !passphrase && !declared?.passphrase;
+    security !== null && security !== "open" && !passphrase && !declared?.hasPassphrase;
   const invalid =
     !name.trim() ||
     (passphrase !== "" && (passphrase.length < 8 || passphrase.length > 63)) ||
@@ -1246,7 +1262,7 @@ function SSIDEditorModal({
             label="Passphrase"
             placeholder={
               edit.mode === "edit"
-                ? declared?.passphrase
+                ? declared?.hasPassphrase
                   ? "leave blank to keep declared"
                   : "leave blank to keep current"
                 : "8–63 characters"

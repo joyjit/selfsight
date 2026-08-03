@@ -230,3 +230,70 @@ func deviceByName(cfg *Config, name string) *Device {
 	}
 	return nil
 }
+
+// The dashboard is never sent a declared passphrase, so it cannot echo one
+// back. An update that leaves it blank must keep the stored one rather than
+// silently wiping the network's key out of the config.
+func TestUpdatePreservesSSIDPassphraseWhenBlank(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	seed := "devices:\n  - name: ap1\n    host: 192.0.2.20\n    username: admin\n" +
+		"    desired:\n      ssids:\n        - name: HomeNet\n          passphrase: stored-key\n"
+	if err := os.WriteFile(path, []byte(seed), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := UpdateDevice(path, "ap1", Device{
+		Name: "ap1", Host: "192.0.2.21", Username: "admin",
+		Desired: Desired{SSIDs: []SSID{{Name: "HomeNet", VLAN: 7}}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.Devices[0].Desired.SSIDs[0].Passphrase; got != "stored-key" {
+		t.Errorf("passphrase should be preserved, got %q", got)
+	}
+	if got := cfg.Devices[0].Desired.SSIDs[0].VLAN; got != 7 {
+		t.Errorf("the rest of the edit must still apply, vlan = %d", got)
+	}
+
+	// An explicit passphrase replaces it.
+	cfg, err = UpdateDevice(path, "ap1", Device{
+		Name: "ap1", Host: "192.0.2.21", Username: "admin",
+		Desired: Desired{SSIDs: []SSID{{Name: "HomeNet", Passphrase: "new-key"}}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.Devices[0].Desired.SSIDs[0].Passphrase; got != "new-key" {
+		t.Errorf("explicit passphrase should replace, got %q", got)
+	}
+}
+
+// A passphrase stored as ${VAR} must survive a blank-passphrase edit as a
+// reference, not be written back as the expanded secret.
+func TestUpdateKeepsEnvRefSSIDPassphrase(t *testing.T) {
+	t.Setenv("SSID_KEY_TEST", "real-wifi-key")
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	seed := "devices:\n  - name: ap1\n    host: 192.0.2.20\n    username: admin\n" +
+		"    desired:\n      ssids:\n        - name: HomeNet\n          passphrase: \"${SSID_KEY_TEST}\"\n"
+	if err := os.WriteFile(path, []byte(seed), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := UpdateDevice(path, "ap1", Device{
+		Name: "ap1", Host: "192.0.2.20", Username: "admin",
+		Desired: Desired{SSIDs: []SSID{{Name: "HomeNet", VLAN: 3}}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), "real-wifi-key") {
+		t.Fatalf("the expanded passphrase leaked into the config file:\n%s", raw)
+	}
+	if !strings.Contains(string(raw), "${SSID_KEY_TEST}") {
+		t.Fatalf("the ${VAR} reference must survive verbatim:\n%s", raw)
+	}
+}

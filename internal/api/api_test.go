@@ -1,6 +1,8 @@
 package api
 
 import (
+	"archive/tar"
+	"bytes"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -9,8 +11,18 @@ import (
 	"strings"
 	"testing"
 
+	"selfsight/internal/backup"
 	"selfsight/internal/core"
 )
+
+// apiRequest builds a test request the way the dashboard does: carrying the
+// header the same-site gate looks for, so a state-changing request is not
+// refused as a possible cross-site forgery.
+func apiRequest(method, target string, body io.Reader) *http.Request {
+	r := httptest.NewRequest(method, target, body)
+	r.Header.Set("X-Requested-With", csrfHeader)
+	return r
+}
 
 func testConfig() *core.Config {
 	return &core.Config{
@@ -66,6 +78,25 @@ func TestNoUIServesPlaceholder(t *testing.T) {
 	}
 }
 
+// fakeArchive is what the fake AP serves for a backup download: a real,
+// already-decrypted archive carrying the members a genuine one has. A stub
+// string would fail the server's post-download processing, which now reports
+// that failure instead of claiming a clean backup.
+var fakeArchive = func() []byte {
+	var buf bytes.Buffer
+	tw := tar.NewWriter(&buf)
+	for _, m := range []struct{ name, body string }{
+		{backup.ConfigPath, cfgWithAdmin(liveAdminHash)},
+		{backup.ShadowPath, testShadow},
+		{backup.DecryptedKeysPath, "keys\n"},
+	} {
+		_ = tw.WriteHeader(&tar.Header{Name: m.name, Mode: 0o600, Size: int64(len(m.body))})
+		_, _ = tw.Write([]byte(m.body))
+	}
+	_ = tw.Close()
+	return buf.Bytes()
+}()
+
 // fakeAP simulates a WAX AP for the live-status endpoint: it seeds the login
 // cookie on GET /AP_login, hands out a token on the credential POST (only if the
 // seed cookie is present), and returns a minimal system-info read for a signed
@@ -78,7 +109,7 @@ func fakeAP(managed bool) *httptest.Server {
 		}
 		if r.URL.Path == "/wac510-backup" {
 			w.Header().Set("Content-Disposition", `attachment; filename="WAX610-AP-Test-config.tar"`)
-			_, _ = w.Write([]byte("PK-fake-encrypted-archive"))
+			_, _ = w.Write(fakeArchive)
 			return
 		}
 		body, _ := io.ReadAll(r.Body)
@@ -186,7 +217,7 @@ func TestDeviceBackup(t *testing.T) {
 	srv := serverForAP(t, ts)
 
 	rr := httptest.NewRecorder()
-	srv.ServeHTTP(rr, httptest.NewRequest(http.MethodPost, "/api/devices/ap1/backup", nil))
+	srv.ServeHTTP(rr, apiRequest(http.MethodPost, "/api/devices/ap1/backup", nil))
 	if rr.Code != http.StatusOK {
 		t.Fatalf("want 200, got %d: %s", rr.Code, rr.Body.String())
 	}
@@ -201,7 +232,7 @@ func TestDeviceBackup(t *testing.T) {
 	if err != nil {
 		t.Fatalf("backup file not written: %v", err)
 	}
-	if string(data) != "PK-fake-encrypted-archive" {
+	if !bytes.Equal(data, fakeArchive) {
 		t.Errorf("backup content wrong: %q", data)
 	}
 }
@@ -248,7 +279,7 @@ func TestSetNameGuardedWrite(t *testing.T) {
 	srv := serverForAP(t, ts)
 
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/devices/ap1/config/name", strings.NewReader(`{"name":"Kitchen"}`))
+	req := apiRequest(http.MethodPost, "/api/devices/ap1/config/name", strings.NewReader(`{"name":"Kitchen"}`))
 	srv.ServeHTTP(rr, req)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("want 200, got %d: %s", rr.Code, rr.Body.String())

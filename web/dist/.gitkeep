@@ -1,0 +1,11 @@
+This file exists so that web/dist/ is never empty.
+
+Go's embed directive fails to build when it matches no files, so the Go
+package here cannot be compiled unless dist/ has something in it. A fresh
+clone has never run `npm run build`, so a placeholder is committed at
+dist/.gitkeep to keep `go build ./...` working before the dashboard is built.
+
+Vite empties dist/ on every build, which would delete that placeholder. Vite
+also copies everything in this directory (public/) into dist/ afterwards — so
+keeping the placeholder here as well means each build puts it back instead of
+leaving a spurious deletion in `git status`.

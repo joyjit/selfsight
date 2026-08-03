@@ -100,7 +100,7 @@ func TestFirmwareCheckEndpoint(t *testing.T) {
 	s := fwServer(t, ap)
 
 	rr := httptest.NewRecorder()
-	s.ServeHTTP(rr, httptest.NewRequest(http.MethodPost, "/api/devices/ap1/firmware/check", nil))
+	s.ServeHTTP(rr, apiRequest(http.MethodPost, "/api/devices/ap1/firmware/check", nil))
 	if rr.Code != http.StatusOK {
 		t.Fatalf("check: want 200, got %d: %s", rr.Code, rr.Body.String())
 	}
@@ -121,7 +121,7 @@ func TestFirmwareUpgradeLifecycle(t *testing.T) {
 	s := fwServer(t, ap)
 
 	rr := httptest.NewRecorder()
-	s.ServeHTTP(rr, httptest.NewRequest(http.MethodPost, "/api/devices/ap1/firmware/upgrade", nil))
+	s.ServeHTTP(rr, apiRequest(http.MethodPost, "/api/devices/ap1/firmware/upgrade", nil))
 	if rr.Code != http.StatusAccepted {
 		t.Fatalf("upgrade start: want 202, got %d: %s", rr.Code, rr.Body.String())
 	}
@@ -167,7 +167,7 @@ func TestSecondUpgradeRefusedWhileRunning(t *testing.T) {
 	u.mu.Unlock()
 
 	rr := httptest.NewRecorder()
-	s.ServeHTTP(rr, httptest.NewRequest(http.MethodPost, "/api/devices/ap1/firmware/upgrade", nil))
+	s.ServeHTTP(rr, apiRequest(http.MethodPost, "/api/devices/ap1/firmware/upgrade", nil))
 	if rr.Code != http.StatusConflict {
 		t.Fatalf("fleet-parallel upgrades must be refused: want 409, got %d", rr.Code)
 	}
@@ -213,7 +213,7 @@ func TestConcurrentUpgradesClaimOneSlot(t *testing.T) {
 			defer wg.Done()
 			<-start // release both at once to overlap the check/claim window
 			rr := httptest.NewRecorder()
-			s.ServeHTTP(rr, httptest.NewRequest(http.MethodPost, "/api/devices/"+name+"/firmware/upgrade", nil))
+			s.ServeHTTP(rr, apiRequest(http.MethodPost, "/api/devices/"+name+"/firmware/upgrade", nil))
 			mu.Lock()
 			defer mu.Unlock()
 			if rr.Code == http.StatusAccepted {

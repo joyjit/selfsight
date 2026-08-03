@@ -63,3 +63,29 @@ func TestSweepRefusesHugeRanges(t *testing.T) {
 		t.Errorf("an ordinary /30 must still be scannable: %v", err)
 	}
 }
+
+// A sweep opens connections to whatever the caller names, so it must only ever
+// be pointed at a local network — never used to knock on doors elsewhere.
+func TestCheckLocalRange(t *testing.T) {
+	for _, cidr := range []string{
+		"192.168.1.0/24", "10.0.0.0/16", "172.16.5.0/24",
+		"127.0.0.0/24", "169.254.0.0/16", "fd00::/64", "fe80::/64",
+	} {
+		if err := CheckLocalRange(cidr); err != nil {
+			t.Errorf("%s is a local range and must be allowed: %v", cidr, err)
+		}
+	}
+	for _, cidr := range []string{
+		"8.8.8.0/24",     // public
+		"192.0.2.0/24",   // documentation range, still not local
+		"0.0.0.0/0",      // everything
+		"172.32.0.0/16",  // just outside RFC1918's 172.16/12
+		"10.0.0.0/7",     // wider than the private block it straddles
+		"2001:4860::/32", // public IPv6
+		"not-a-cidr",
+	} {
+		if err := CheckLocalRange(cidr); err == nil {
+			t.Errorf("%s is not a local range and must be refused", cidr)
+		}
+	}
+}

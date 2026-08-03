@@ -17,7 +17,7 @@ func authedConfig() *core.Config {
 
 func do(s *Server, method, path, body string, cookies ...*http.Cookie) *httptest.ResponseRecorder {
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(method, path, strings.NewReader(body))
+	req := apiRequest(method, path, strings.NewReader(body))
 	for _, c := range cookies {
 		req.AddCookie(c)
 	}
@@ -66,7 +66,7 @@ func TestSessionCookieSecureOverHTTPS(t *testing.T) {
 
 	// Behind a TLS-terminating proxy/tunnel: standard X-Forwarded-Proto signal
 	// → Secure, so the browser never sends the session over plaintext.
-	req := httptest.NewRequest(http.MethodPost, "/api/auth/login", strings.NewReader(`{"password":"hunter2"}`))
+	req := apiRequest(http.MethodPost, "/api/auth/login", strings.NewReader(`{"password":"hunter2"}`))
 	req.Header.Set("X-Forwarded-Proto", "https")
 	rr = httptest.NewRecorder()
 	s.ServeHTTP(rr, req)

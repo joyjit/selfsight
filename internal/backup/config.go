@@ -129,29 +129,42 @@ func isVolatileKey(key string) bool {
 	return false
 }
 
-// StableConfig rewrites a config for the history log so it does not churn on
-// reboots: every opaque encrypted-at-rest value is replaced by a fixed
-// placeholder, and volatile bookkeeping values (self-updating timestamps) are
-// blanked the same way. The KEY stays, so a field being added or removed
-// still shows in history — only the meaningless value churn is dropped. The
-// config kept in backups is untouched; this is only the readable history's
-// view (and the change detector's, so bookkeeping no longer triggers
+// StableConfig rewrites a config for the history log so it holds no secret and
+// does not churn on reboots. Three rewrites, in this order:
+//
+//   - an opaque encrypted-at-rest value becomes a fixed placeholder (the AP
+//     re-wraps these on every restart, so their stored form changes when
+//     nothing really did);
+//   - a volatile bookkeeping value (a self-updating timestamp) is blanked the
+//     same way;
+//   - anything else under a secret-bearing key — the admin password hash is
+//     the one that matters — becomes a fingerprint of its value, exactly as
+//     Redact does: you can see *that* it changed and when, without the value
+//     being written down.
+//
+// The KEY always stays, so a field being added or removed still shows in
+// history. The config kept in backups is untouched; this is only the readable
+// history's view (and the change detector's, so bookkeeping no longer triggers
 // backups).
 //
-// Trade-off: a genuine change to one of these secrets will NOT show in
-// history, because its stored form (same encryption envelope) is
-// indistinguishable from a reboot re-wrap. Nothing readable is lost — the
-// config only ever held the wrapped form — and the audit value is in
-// structure (SSIDs, VLANs, radios, hidden flags), which is fully preserved.
+// Trade-off: a genuine change to a re-wrapped secret will NOT show in history,
+// because its stored form is indistinguishable from a reboot re-wrap. Nothing
+// readable is lost — the config only ever held the wrapped form — and the
+// audit value is in structure (SSIDs, VLANs, radios, hidden flags), which is
+// fully preserved.
 func StableConfig(config []byte) []byte {
 	lines := strings.Split(string(config), "\n")
 	for i, line := range lines {
 		key, val, ok := strings.Cut(line, " ")
 		switch {
-		case ok && encBlob.MatchString(val):
+		case !ok:
+			// a line with no value; nothing to normalize
+		case encBlob.MatchString(val):
 			lines[i] = key + " «encrypted»"
-		case ok && isVolatileKey(key):
+		case isVolatileKey(key):
 			lines[i] = key + " «volatile»"
+		case val != "" && isSecretKey(key):
+			lines[i] = key + " " + fingerprint(val)
 		}
 	}
 	return []byte(strings.Join(lines, "\n"))
@@ -177,10 +190,19 @@ func isSecretKey(key string) bool {
 	return false
 }
 
-// NOTE: history currently stores the config UNREDACTED, by explicit decision —
-// the history repository is local-only and never pushed, and an unredacted
-// history is restorable and greppable. Redact is kept for the day a shareable
-// (redacted) export is wanted.
+// fingerprint is the stand-in a secret value is stored as: a short, stable
+// hash of it. Stable means an unchanged secret produces no diff; short means
+// the value cannot be recovered from it.
+func fingerprint(val string) string {
+	sum := sha256.Sum256([]byte(val))
+	return "«redacted:" + hex.EncodeToString(sum[:4]) + "»"
+}
+
+// NOTE: history stores the config through StableConfig, which already replaces
+// every secret-bearing value with a fingerprint (and every re-wrapped blob
+// with a placeholder), so no readable secret reaches the history repository.
+// Redact is the stricter, sorted form kept for a shareable export: it drops
+// blank lines and orders the result so two snapshots diff cleanly.
 //
 // Redact rewrites a plaintext config so no secret value is retained: each
 // secret line's value becomes "«redacted:<8 hex>»", a fingerprint of the value.
@@ -197,8 +219,7 @@ func Redact(config []byte) []byte {
 		}
 		key, val, ok := strings.Cut(line, " ")
 		if ok && val != "" && isSecretKey(key) {
-			sum := sha256.Sum256([]byte(val))
-			line = key + " «redacted:" + hex.EncodeToString(sum[:4]) + "»"
+			line = key + " " + fingerprint(val)
 		}
 		out = append(out, line)
 	}

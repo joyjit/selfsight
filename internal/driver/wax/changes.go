@@ -88,6 +88,30 @@ func (m *Manager) SetName(ctx context.Context, backupDir, name string) (*ApplyRe
 	return m.Apply(ctx, backupDir, APNameChange(name))
 }
 
+// MatchPassphrase reports whether the device's key for the named network is
+// the passphrase given. The AP's status read does not carry keys; the slot
+// table does, so this reads that and compares inside the driver — the answer
+// crosses the boundary, the key never does.
+func (m *Manager) MatchPassphrase(ctx context.Context, name, passphrase string) (bool, error) {
+	if !m.hasSession {
+		if err := m.login(ctx); err != nil {
+			return false, err
+		}
+	}
+	ok, err := verifyPassphrase(ctx, m.client, name, passphrase)
+	if err != nil && m.recoverable(err) {
+		if lerr := m.login(ctx); lerr != nil {
+			return false, lerr
+		}
+		ok, err = verifyPassphrase(ctx, m.client, name, passphrase)
+	}
+	if err != nil {
+		return false, err
+	}
+	_ = m.saveSession()
+	return ok, nil
+}
+
 // ValidateSecurity reports whether the config security label is one this
 // device supports. Pure — no network.
 func (m *Manager) ValidateSecurity(label string) error {

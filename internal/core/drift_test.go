@@ -1,6 +1,9 @@
 package core
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func desired() Desired {
 	return Desired{
@@ -113,5 +116,52 @@ func TestDriftTriStateBooleans(t *testing.T) {
 	)
 	if !rep.InSync {
 		t.Errorf("undeclared/unobserved booleans must not drift: %+v", rep)
+	}
+}
+
+// A declared passphrase drifts on the driver's verdict, and neither the
+// declared key nor the device's may appear anywhere in the report.
+func TestDriftPassphrase(t *testing.T) {
+	d := Desired{SSIDs: []SSID{{Name: "HomeNet", Passphrase: "super-secret-key"}}}
+	yes, no := true, false
+
+	cases := []struct {
+		name       string
+		match      *bool
+		wantObs    string
+		wantInSync bool
+	}{
+		{"matching key", &yes, "matches", true},
+		{"different key", &no, "mismatch", false},
+		{"could not tell", nil, "unknown", false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			rep := ComputeDrift(d, []ObservedSSID{{Name: "HomeNet", PassphraseMatch: c.match}}, nil)
+			if len(rep.Items) != 1 {
+				t.Fatalf("want one item, got %+v", rep.Items)
+			}
+			it := rep.Items[0]
+			if it.Field != "passphrase" || it.Desired != "set" || it.Observed != c.wantObs {
+				t.Errorf("item = %+v", it)
+			}
+			if it.InSync != c.wantInSync || rep.InSync != c.wantInSync {
+				t.Errorf("inSync = %v/%v, want %v", it.InSync, rep.InSync, c.wantInSync)
+			}
+			if strings.Contains(it.Desired+it.Observed, "super-secret-key") {
+				t.Error("the report must never carry the passphrase itself")
+			}
+		})
+	}
+}
+
+// An undeclared passphrase is unmanaged: it must not be checked or reported.
+func TestDriftIgnoresUndeclaredPassphrase(t *testing.T) {
+	rep := ComputeDrift(Desired{SSIDs: []SSID{{Name: "HomeNet", VLAN: 1}}},
+		[]ObservedSSID{{Name: "HomeNet", VLAN: 1}}, nil)
+	for _, it := range rep.Items {
+		if it.Field == "passphrase" {
+			t.Errorf("undeclared passphrase must not be reported: %+v", it)
+		}
 	}
 }

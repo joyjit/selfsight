@@ -56,6 +56,12 @@ type Driver interface {
 	// disruptive operation there is: reboots the device, drops every client.
 	Upgrade(ctx context.Context, backupDir string, onProgress func(UpgradeProgress)) (*UpgradeOutcome, error)
 
+	// MatchPassphrase reports whether the named network's key on the device
+	// equals passphrase. The comparison happens inside the driver so the
+	// secret never crosses back out — only the yes/no does. This is the one
+	// declared field Status cannot answer.
+	MatchPassphrase(ctx context.Context, name, passphrase string) (bool, error)
+
 	// ValidateSecurity reports whether the device supports a config security
 	// label ("wpa2-psk", …). Pure — no network.
 	ValidateSecurity(label string) error

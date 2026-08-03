@@ -3,7 +3,7 @@
 #   1. mkdir -p config data
 #   2. cp config.example.yaml config/config.yaml   # edit for your APs
 #   3. cp .env.example .env                         # set the passwords it references
-#   4. docker compose up -d --build                 # dashboard on :8080
+#   4. docker compose up -d --build                 # dashboard on 127.0.0.1:8080
 #
 # config.yaml can keep secrets out of the file by referencing ${VARS} that you
 # define in .env (see config.example.yaml). Only its non-secret fields then need
@@ -26,7 +26,11 @@ services:
       # writable, persisted data volume.
       - XDG_CACHE_HOME=/data/.cache
     ports:
-      - "${SELFSIGHT_PORT:-8080}:8080"
+      # Bound to loopback: the dashboard holds AP admin credentials and its
+      # backups contain WiFi passphrases, so it must not be reachable from the
+      # LAN by default. Put a reverse proxy with TLS in front to expose it, or
+      # change this to "${SELFSIGHT_PORT:-8080}:8080" if you accept the risk.
+      - "127.0.0.1:${SELFSIGHT_PORT:-8080}:8080"
     volumes:
       # config.yaml lives in ./config. Mounted read-write so the dashboard's
       # add/edit/remove-device actions can update it; for strict GitOps (edit

@@ -29,8 +29,15 @@ export function setUnauthorizedHandler(fn: () => void) {
   onUnauthorized = fn;
 }
 
+// The server refuses a request that changes something unless it carries this
+// header — a browser will not attach a custom header to a form post or any
+// other request a different site can make on the user's behalf, so it proves
+// the request came from here. Set on every request, not just the write ones,
+// so a route that later becomes a write cannot be forgotten.
 async function apiFetch(path: string, init?: RequestInit): Promise<Response> {
-  const res = await fetch(path, init);
+  const headers = new Headers(init?.headers);
+  headers.set("X-Requested-With", "selfsight");
+  const res = await fetch(path, { ...init, headers });
   if (res.status === 401 && !path.startsWith("/api/auth/")) {
     onUnauthorized?.();
   }
@@ -360,7 +367,11 @@ export interface DeviceInput {
       name: string;
       vlan?: number;
       security?: string;
+      // Sent only when setting a new one. The server never sends a stored
+      // passphrase back — it reports hasPassphrase instead — and reads a
+      // blank one on update as "keep the current".
       passphrase?: string;
+      hasPassphrase?: boolean;
       hidden?: boolean;
       enabled?: boolean;
     }[];
@@ -381,9 +392,10 @@ async function sendJSON<T>(method: string, path: string, body: unknown): Promise
   return data as T;
 }
 
-// Full declared config for the edit form (never includes the password;
-// hasPassword says whether one is stored so the form can show "leave blank to
-// keep").
+// Full declared config for the edit form. It never carries a secret: the
+// device password and every declared WiFi passphrase are reported only as
+// hasPassword / hasPassphrase, so the form can offer "leave blank to keep"
+// without the value ever reaching the browser.
 export function fetchDeviceConfig(
   name: string,
 ): Promise<{ device: DeviceInput; hasPassword: boolean }> {
@@ -404,13 +416,16 @@ export function updateDevice(name: string, dev: DeviceInput): Promise<{ device: 
 export async function deleteDeviceSSID(
   device: string,
   ssid: string,
-): Promise<{ applied?: boolean; observed?: string }> {
+): Promise<{ applied?: boolean; observed?: string; error?: string }> {
   const res = await apiFetch(
     `/api/devices/${encodeURIComponent(device)}/ssids/${encodeURIComponent(ssid)}`,
     { method: "DELETE", headers: { Accept: "application/json" } },
   );
   const body = await res.json().catch(() => ({}));
-  if (!res.ok) {
+  // A 409 is an answer, not a failure: the delete was written but the
+  // read-back still sees the network, or the server refused it for a reason
+  // worth showing. Same handling as applyDevice, so the UI renders both alike.
+  if (!res.ok && res.status !== 409) {
     throw new StatusError(body.error ?? res.statusText, res.status);
   }
   return body;

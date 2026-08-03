@@ -29,6 +29,12 @@ type ObservedSSID struct {
 	Security string // e.g. "WPA2-PSK/AES"
 	Hidden   bool
 	Enabled  bool
+	// PassphraseMatch is whether the device's key for this network equals the
+	// declared one. It is a pointer because the ordinary status read cannot
+	// answer it — the driver has to be asked separately — so nil means "not
+	// established", distinct from "does not match". The answer only ever
+	// travels as this yes/no; the key itself never leaves the driver.
+	PassphraseMatch *bool
 }
 
 // ObservedRadio is one band's observed state. Band uses the config's keys
@@ -81,6 +87,26 @@ func ComputeDrift(d Desired, ssids []ObservedSSID, radios []ObservedRadio) Drift
 		}
 		if want.Enabled != nil {
 			add(scope, "enabled", yesNo(*want.Enabled), yesNo(got.Enabled))
+		}
+		if want.Passphrase != "" {
+			// A declared passphrase drifts like anything else, but neither
+			// side of the comparison may appear in the report — it is read by
+			// whoever opens the dashboard. So the desired value is the fact
+			// that one is declared, and the observed value is the verdict.
+			// Anything short of a confirmed match counts as drift, including
+			// "could not tell": erring the other way would quietly stop
+			// reporting a wrong key the moment a read failed.
+			observed := "unknown"
+			if got.PassphraseMatch != nil {
+				observed = "mismatch"
+				if *got.PassphraseMatch {
+					observed = "matches"
+				}
+			}
+			items = append(items, DriftItem{
+				Scope: scope, Field: "passphrase", Desired: "set", Observed: observed,
+				InSync: got.PassphraseMatch != nil && *got.PassphraseMatch,
+			})
 		}
 	}
 

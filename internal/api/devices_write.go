@@ -44,6 +44,10 @@ type ssidInput struct {
 	Passphrase string `json:"passphrase"`
 	Hidden     *bool  `json:"hidden,omitempty"`  // tri-state: absent = not managed
 	Enabled    *bool  `json:"enabled,omitempty"` // tri-state: absent = not managed
+	// HasPassphrase is response-only: it tells the edit form that a passphrase
+	// is stored, so it can offer "leave blank to keep" without the value ever
+	// being sent to the browser. Ignored on input.
+	HasPassphrase bool `json:"hasPassphrase,omitempty"`
 }
 
 type radioInput struct {
@@ -123,9 +127,11 @@ func (s *Server) handleAddDevice(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleDeviceConfig returns a device's full declared config so the edit form
-// can prefill from it — everything except the password, which never leaves the
-// process (an edit that leaves the password field blank keeps the current one;
-// see handleUpdateDevice).
+// can prefill from it — everything except the secrets, which never leave the
+// process. Neither the device password nor any declared WiFi passphrase is
+// sent; each is reported only as "there is one stored" (hasPassword,
+// hasPassphrase). An edit that leaves either field blank keeps the current
+// value (see handleUpdateDevice and core.UpdateDevice).
 func (s *Server) handleDeviceConfig(w http.ResponseWriter, r *http.Request) {
 	dev := s.device(r.PathValue("name"))
 	if dev == nil {
@@ -137,8 +143,9 @@ func (s *Server) handleDeviceConfig(w http.ResponseWriter, r *http.Request) {
 		d := &desiredInput{Radios: map[string]radioInput{}}
 		for _, s := range dev.Desired.SSIDs {
 			d.SSIDs = append(d.SSIDs, ssidInput{
-				Name: s.Name, VLAN: s.VLAN, Security: s.Security, Passphrase: s.Passphrase,
+				Name: s.Name, VLAN: s.VLAN, Security: s.Security,
 				Hidden: s.Hidden, Enabled: s.Enabled,
+				HasPassphrase: s.Passphrase != "",
 			})
 		}
 		for k, radio := range dev.Desired.Radios {
@@ -247,6 +254,13 @@ func (s *Server) handleTestConnection(w http.ResponseWriter, r *http.Request) {
 	var in deviceInput
 	if err := decodeJSONBody(w, r, &in); err != nil || in.Host == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "body must include a host"})
+		return
+	}
+	// This is the one endpoint that dials an address the caller supplies
+	// directly, so the address is held to the same rules as a configured one:
+	// a plain IP or host name with an optional port, nothing else.
+	if err := core.ValidateHost(in.Host); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"ok": false, "error": err.Error()})
 		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)

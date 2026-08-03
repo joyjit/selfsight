@@ -81,16 +81,17 @@ not before.
 
 ```
 selfsight/
-├── cmd/selfsight/     main: server, and the `probe` subcommand
+├── cmd/selfsight/     main: server, and the `probe`/`discover` subcommands
 ├── internal/
 │   ├── device/        the vendor boundary: Driver + Codec contracts
 │   ├── driver/wax/    session, read, write — the crown jewels
-│   ├── core/          inventory, drift, apply engine, scheduler
+│   ├── core/          inventory, config file editing, drift
 │   ├── backup/        config history store (generic) + WAX archive crypto
+│   ├── discovery/     credential-free subnet sweep for APs
+│   ├── capture/       recording and sanitizing real device transcripts
 │   └── api/           HTTP handlers
 ├── web/               React app (Vite); build output embedded
 ├── testdata/          sanitized device transcripts (see Testing)
-├── docs/
 ├── Dockerfile
 └── LICENSE            Apache-2.0
 ```
@@ -542,16 +543,41 @@ repository, as it contains real credentials.
 - **No secrets in this repo** — enforced by the sanitizer for fixtures and
   by review for everything else. Real IPs/SSIDs/serials count as secrets
   here.
-- **UI/API auth** — optional password auth (`server.auth.password`) gates
-  every API route except health and the login endpoints; the SPA stays open
-  so it can render the login form. Sessions are random in-memory tokens in an
-  HttpOnly cookie (24 h sliding); a server restart logs everyone out. Failed
-  logins are delayed to damp brute force. With no `auth` block the server is
-  open — the original trusted-LAN default, and it logs a loud warning saying
-  so — but **enable auth before enabling writes**: the write endpoints act on
-  your network. Exposing selfsight beyond the LAN still wants a reverse proxy
-  with TLS in front; behind one, the session cookie is marked `Secure`
-  (detected via `X-Forwarded-Proto`).
+- **Stored backups and history are plaintext on disk.** A downloaded archive
+  is decrypted and kept that way (0600, under the data directory), because a
+  snapshot nobody can read is a snapshot nobody can restore or diff, and the
+  key would have to sit on the same machine anyway. The config history keeps
+  no readable secret: every secret-bearing value is replaced by a short hash
+  of itself, so you can see *that* a passphrase changed and when, never what
+  it is. The archives themselves do still contain WiFi passphrases — so this
+  is an accepted risk with conditions, not an oversight: **bind the server to
+  localhost, put auth in front of it, and treat the data directory as
+  sensitive**. See SECURITY.md.
+- **UI/API auth** — password auth (`server.auth.password`) gates every API
+  route except health and the login endpoints; the SPA stays open so it can
+  render the login form. Sessions are random in-memory tokens in an HttpOnly
+  cookie (24 h sliding); a server restart, or a change to the password,
+  logs everyone out. Wrong passwords are counted per source address and that
+  address is locked out after five in five minutes. With no `auth` block the
+  server is open — the original trusted-LAN default, and it logs a loud
+  warning saying so — but the shipped example config enables it, because the
+  write endpoints act on your network. Exposing selfsight beyond the LAN
+  still wants a reverse proxy with TLS in front; behind one, the session
+  cookie is marked `Secure` (detected via `X-Forwarded-Proto`).
+- **Cross-site request forgery** — a request that changes something must
+  either be `application/json` or carry `X-Requested-With: selfsight`, and
+  its `Origin` (when the browser sends one) must be this server. Neither is
+  something another site's page can produce, so a tab the user has open
+  elsewhere cannot quietly reconfigure an access point using their session.
+  Every response also carries the usual browser locks: no content-type
+  guessing, no framing, no referrer, and a content-security policy that
+  allows only this server's own scripts and styles.
+- **Addresses are validated, not just used.** A device host must be a plain
+  IP or host name with an optional port; the subnet sweep only accepts
+  private, loopback and link-local ranges. So neither can be turned into a
+  way to make the server open connections to somewhere else, and neither can
+  steer a cache file out of its directory (which is belt and braces — the
+  driver's per-host caches are named by a hash of the address anyway).
 - **Serial pinning** — each device entry can record the unit's serial number
   (`serial:`, captured automatically by the UI's connection test on adopt).
   Every write-class operation (apply, restore, firmware upgrade, name change)

@@ -194,7 +194,7 @@ func TestApplyFixesDrift(t *testing.T) {
 	})
 
 	rr := httptest.NewRecorder()
-	s.ServeHTTP(rr, httptest.NewRequest(http.MethodPost, "/api/devices/ap1/apply", nil))
+	s.ServeHTTP(rr, apiRequest(http.MethodPost, "/api/devices/ap1/apply", nil))
 	if rr.Code != http.StatusOK {
 		t.Fatalf("apply: want 200, got %d: %s", rr.Code, rr.Body.String())
 	}
@@ -245,7 +245,7 @@ func TestApplyCreatesMissingSSID(t *testing.T) {
 	})
 
 	rr := httptest.NewRecorder()
-	s.ServeHTTP(rr, httptest.NewRequest(http.MethodPost, "/api/devices/ap1/apply", nil))
+	s.ServeHTTP(rr, apiRequest(http.MethodPost, "/api/devices/ap1/apply", nil))
 	if rr.Code != http.StatusOK {
 		t.Fatalf("apply: want 200, got %d: %s", rr.Code, rr.Body.String())
 	}
@@ -261,7 +261,7 @@ func TestApplyRefusesToCreateWithoutPassphrase(t *testing.T) {
 	})
 
 	rr := httptest.NewRecorder()
-	s.ServeHTTP(rr, httptest.NewRequest(http.MethodPost, "/api/devices/ap1/apply", nil))
+	s.ServeHTTP(rr, apiRequest(http.MethodPost, "/api/devices/ap1/apply", nil))
 	if rr.Code != http.StatusBadGateway {
 		t.Fatalf("creating a PSK network without a passphrase must fail, got %d: %s", rr.Code, rr.Body.String())
 	}
@@ -282,7 +282,7 @@ func TestApplyTogglesHiddenAndEnabled(t *testing.T) {
 	})
 
 	rr := httptest.NewRecorder()
-	s.ServeHTTP(rr, httptest.NewRequest(http.MethodPost, "/api/devices/ap1/apply", nil))
+	s.ServeHTTP(rr, apiRequest(http.MethodPost, "/api/devices/ap1/apply", nil))
 	if rr.Code != http.StatusOK {
 		t.Fatalf("apply: want 200, got %d: %s", rr.Code, rr.Body.String())
 	}
@@ -311,7 +311,7 @@ func TestApplyDisablesRadio(t *testing.T) {
 	})
 
 	rr := httptest.NewRecorder()
-	s.ServeHTTP(rr, httptest.NewRequest(http.MethodPost, "/api/devices/ap1/apply", nil))
+	s.ServeHTTP(rr, apiRequest(http.MethodPost, "/api/devices/ap1/apply", nil))
 	if rr.Code != http.StatusOK {
 		t.Fatalf("apply: want 200, got %d: %s", rr.Code, rr.Body.String())
 	}
@@ -329,7 +329,7 @@ func TestDeleteSSIDEndpoint(t *testing.T) {
 	s := applyServer(t, ap, core.Desired{})
 
 	rr := httptest.NewRecorder()
-	s.ServeHTTP(rr, httptest.NewRequest(http.MethodDelete, "/api/devices/ap1/ssids/Guest", nil))
+	s.ServeHTTP(rr, apiRequest(http.MethodDelete, "/api/devices/ap1/ssids/Guest", nil))
 	if rr.Code != http.StatusOK {
 		t.Fatalf("delete: want 200, got %d: %s", rr.Code, rr.Body.String())
 	}
@@ -354,7 +354,7 @@ func TestDeleteSSIDRefusesPrimary(t *testing.T) {
 
 	// HomeNet lives in SSID1 — the device's primary network.
 	rr := httptest.NewRecorder()
-	s.ServeHTTP(rr, httptest.NewRequest(http.MethodDelete, "/api/devices/ap1/ssids/HomeNet", nil))
+	s.ServeHTTP(rr, apiRequest(http.MethodDelete, "/api/devices/ap1/ssids/HomeNet", nil))
 	if rr.Code == http.StatusOK {
 		t.Fatalf("deleting the primary SSID must be refused: %d %s", rr.Code, rr.Body.String())
 	}
@@ -371,7 +371,7 @@ func TestDeleteSSIDRefusesDeclared(t *testing.T) {
 	})
 
 	rr := httptest.NewRecorder()
-	s.ServeHTTP(rr, httptest.NewRequest(http.MethodDelete, "/api/devices/ap1/ssids/Guest", nil))
+	s.ServeHTTP(rr, apiRequest(http.MethodDelete, "/api/devices/ap1/ssids/Guest", nil))
 	if rr.Code != http.StatusConflict {
 		t.Fatalf("deleting a declared SSID must 409, got %d: %s", rr.Code, rr.Body.String())
 	}
@@ -389,7 +389,7 @@ func TestApplyRefusedOnSerialMismatch(t *testing.T) {
 	}, "OTHER-UNIT")
 
 	rr := httptest.NewRecorder()
-	s.ServeHTTP(rr, httptest.NewRequest(http.MethodPost, "/api/devices/ap1/apply", nil))
+	s.ServeHTTP(rr, apiRequest(http.MethodPost, "/api/devices/ap1/apply", nil))
 	if rr.Code != http.StatusConflict {
 		t.Fatalf("serial mismatch must 409, got %d: %s", rr.Code, rr.Body.String())
 	}
@@ -408,7 +408,7 @@ func TestApplyProceedsOnSerialMatch(t *testing.T) {
 	}, "S1") // matches the fake
 
 	rr := httptest.NewRecorder()
-	s.ServeHTTP(rr, httptest.NewRequest(http.MethodPost, "/api/devices/ap1/apply", nil))
+	s.ServeHTTP(rr, apiRequest(http.MethodPost, "/api/devices/ap1/apply", nil))
 	if rr.Code != http.StatusOK {
 		t.Fatalf("matching serial must apply normally, got %d: %s", rr.Code, rr.Body.String())
 	}
@@ -423,7 +423,7 @@ func TestSetNameRefusedOnSerialMismatch(t *testing.T) {
 	s := applyServerSerial(t, ap, core.Desired{}, "OTHER-UNIT")
 
 	rr := httptest.NewRecorder()
-	s.ServeHTTP(rr, httptest.NewRequest(http.MethodPost, "/api/devices/ap1/config/name",
+	s.ServeHTTP(rr, apiRequest(http.MethodPost, "/api/devices/ap1/config/name",
 		strings.NewReader(`{"name":"NewName"}`)))
 	if rr.Code != http.StatusConflict {
 		t.Fatalf("serial mismatch must 409, got %d: %s", rr.Code, rr.Body.String())
@@ -440,7 +440,7 @@ func TestApplyNoOpWhenInSync(t *testing.T) {
 	})
 
 	rr := httptest.NewRecorder()
-	s.ServeHTTP(rr, httptest.NewRequest(http.MethodPost, "/api/devices/ap1/apply", nil))
+	s.ServeHTTP(rr, apiRequest(http.MethodPost, "/api/devices/ap1/apply", nil))
 	if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), `"results":[]`) {
 		t.Fatalf("in-sync apply must write nothing: %d %s", rr.Code, rr.Body.String())
 	}

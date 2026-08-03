@@ -25,13 +25,40 @@ import (
 func WithPinPath(path string) Option { return func(c *Client) { c.pinPath = path } }
 
 // DefaultPinPath is where host's certificate pin lives, next to its session
-// (e.g. ~/.cache/selfsight/pin-192.0.2.20.txt).
+// (e.g. ~/.cache/selfsight/pin-3f7a1c9d8e2b4a06.txt).
 func DefaultPinPath(host string) (string, error) {
+	base, err := DefaultCacheDir()
+	if err != nil {
+		return "", err
+	}
+	return PinPathIn(base, host), nil
+}
+
+// PinPathIn is DefaultPinPath under an explicit cache directory, for a
+// deployment that has no user cache dir of its own.
+func PinPathIn(base, host string) string {
+	return filepath.Join(base, "pin-"+hostKey(host)+".txt")
+}
+
+// DefaultCacheDir is where the driver keeps its per-host caches (sessions and
+// certificate pins) when the caller has no directory of its own.
+func DefaultCacheDir() (string, error) {
 	base, err := os.UserCacheDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(base, "selfsight", "pin-"+host+".txt"), nil
+	return filepath.Join(base, "selfsight"), nil
+}
+
+// hostKey turns a device address into a file-name component: the first 16 hex
+// digits of its SHA-256. Hashing rather than embedding the address means no
+// host string — however odd, and whatever validation upstream may have missed
+// — can steer a cache file out of its directory, and it keeps the addresses of
+// a fleet off the filesystem. It is stable, so a host keeps its own cache
+// across restarts.
+func hostKey(host string) string {
+	sum := sha256.Sum256([]byte(host))
+	return hex.EncodeToString(sum[:8])
 }
 
 var pinMu sync.Mutex // pin files are per-host but cheap; one lock is fine

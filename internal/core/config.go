@@ -2,8 +2,11 @@ package core
 
 import (
 	"fmt"
+	"net"
+	"net/netip"
 	"os"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -141,7 +144,7 @@ type SSID struct {
 	Security   string `yaml:"security,omitempty"`
 	Passphrase string `yaml:"passphrase,omitempty"`
 	Hidden     *bool  `yaml:"hidden,omitempty"`  // hide the SSID from broadcast
-	Enabled    *bool  `yaml:"enabled,omitempty"` // the network is active (vapProfileStatus)
+	Enabled    *bool  `yaml:"enabled,omitempty"` // the network is active (the device's per-SSID active flag)
 }
 
 // Radio is the declared state of one radio band (e.g. "2g", "5g").
@@ -298,6 +301,57 @@ func ValidateDeviceName(name string) error {
 	return nil
 }
 
+// HostMax bounds a device address. 255 is the longest a DNS name may be, and
+// no legitimate IP literal comes close.
+const HostMax = 255
+
+// hostLabelRe is one label of a host name: letters, digits and inner dashes.
+// It cannot match an empty string, so "a..b" and a leading/trailing dot are
+// refused, and it admits neither "." nor "..".
+var hostLabelRe = regexp.MustCompile(`^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?$`)
+
+// ValidateHost enforces that a device address is a plain IP or host name, with
+// an optional ":port".
+//
+// Like a device name, a host is not just a label: it is dialed, and it keys the
+// driver's on-disk session and certificate-pin caches. A value carrying a path
+// separator, a space, a control character or a ".." segment has no meaning as
+// an address and could only ever confuse a path or a URL, so it is refused here
+// — at the one boundary every configured and user-entered address crosses —
+// rather than sanitized at each place that later uses it.
+func ValidateHost(host string) error {
+	if host == "" {
+		return fmt.Errorf("host is required")
+	}
+	if len(host) > HostMax {
+		return fmt.Errorf("host is too long (%d characters, max %d)", len(host), HostMax)
+	}
+	for _, r := range host {
+		if r <= ' ' || r == 0x7f || r == '/' || r == '\\' {
+			return fmt.Errorf("host %q contains a character that cannot appear in an address", host)
+		}
+	}
+	name := host
+	// SplitHostPort only succeeds on an addr:port form; a bare IPv6 literal
+	// ("::1") fails it and is validated whole, below.
+	if h, p, err := net.SplitHostPort(host); err == nil {
+		port, perr := strconv.Atoi(p)
+		if perr != nil || port < 1 || port > 65535 {
+			return fmt.Errorf("host %q: port must be a number between 1 and 65535", host)
+		}
+		name = h
+	}
+	if _, err := netip.ParseAddr(name); err == nil {
+		return nil
+	}
+	for _, label := range strings.Split(strings.TrimSuffix(name, "."), ".") {
+		if len(label) > 63 || !hostLabelRe.MatchString(label) {
+			return fmt.Errorf("host %q is not an IP address or host name", host)
+		}
+	}
+	return nil
+}
+
 func (c *Config) validate() error {
 	if a := c.Server.Auth; a != nil && a.Password == "" {
 		return fmt.Errorf("server.auth: password is required when auth is enabled")
@@ -318,10 +372,10 @@ func (c *Config) validate() error {
 		if err := ValidateDeviceName(d.Name); err != nil {
 			return fmt.Errorf("%s: %w", where, err)
 		}
-		switch {
-		case d.Host == "":
-			return fmt.Errorf("%s: host is required", where)
-		case d.Username == "":
+		if err := ValidateHost(d.Host); err != nil {
+			return fmt.Errorf("%s: %w", where, err)
+		}
+		if d.Username == "" {
 			return fmt.Errorf("%s: username is required", where)
 		}
 		if seen[d.Name] {

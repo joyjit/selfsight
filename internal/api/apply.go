@@ -23,9 +23,10 @@ func (s *Server) handleDeviceApply(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "no such device: " + r.PathValue("name")})
 		return
 	}
-	if s.deviceBusy(w, dev.Name) {
+	if !s.beginWrite(w, dev.Name) {
 		return
 	}
+	defer s.releaseFleetWrite(dev.Name)
 
 	dm := s.managerFor(dev)
 	dm.mu.Lock()
@@ -39,7 +40,8 @@ func (s *Server) handleDeviceApply(w http.ResponseWriter, r *http.Request) {
 	if !serialMatches(w, dev, status) {
 		return
 	}
-	report := core.ComputeDrift(dev.Desired, observedSSIDs(status), observedRadios(status))
+	ssids := withPassphraseMatch(r.Context(), dm.mgr, dev.Desired, observedSSIDs(status))
+	report := core.ComputeDrift(dev.Desired, ssids, observedRadios(status))
 	changes, skipped := planChanges(dev.Desired, report)
 	if len(changes) == 0 {
 		writeJSON(w, http.StatusOK, map[string]any{
@@ -50,7 +52,10 @@ func (s *Server) handleDeviceApply(w http.ResponseWriter, r *http.Request) {
 
 	// Strictly sequential; each change takes its own fresh backup. One failed
 	// change stops the run — the device may be mid-transition and the human
-	// should look before more writes pile on.
+	// should look before more writes pile on. That covers both kinds of
+	// failure: the write erroring outright, and the write going through but
+	// the read-back not confirming it (res.Applied false), which is just as
+	// much a reason to stop.
 	results := make([]*device.ApplyResult, 0, len(changes))
 	for _, ch := range changes {
 		res, err := ch.run(r.Context(), dm.mgr, s.deviceDataDir(dev.Name))
@@ -62,6 +67,9 @@ func (s *Server) handleDeviceApply(w http.ResponseWriter, r *http.Request) {
 		}
 		s.finishApplyBackup(dev, res)
 		results = append(results, res)
+		if !res.Applied {
+			break
+		}
 	}
 	s.snapshotAfterApply(r.Context(), dev, dm, results)
 	code := http.StatusOK
@@ -85,9 +93,11 @@ func (s *Server) handleDeleteSSID(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "no such device: " + r.PathValue("name")})
 		return
 	}
-	if s.deviceBusy(w, dev.Name) {
+	if !s.beginWrite(w, dev.Name) {
 		return
 	}
+	defer s.releaseFleetWrite(dev.Name)
+
 	ssid := r.PathValue("ssid")
 	for _, d := range dev.Desired.SSIDs {
 		if d.Name == ssid {

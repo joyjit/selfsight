@@ -31,9 +31,9 @@ func doReq(t *testing.T, s *Server, method, path, body string) *httptest.Respons
 	rr := httptest.NewRecorder()
 	var r *http.Request
 	if body == "" {
-		r = httptest.NewRequest(method, path, nil)
+		r = apiRequest(method, path, nil)
 	} else {
-		r = httptest.NewRequest(method, path, strings.NewReader(body))
+		r = apiRequest(method, path, strings.NewReader(body))
 	}
 	s.ServeHTTP(rr, r)
 	return rr

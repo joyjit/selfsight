@@ -3,8 +3,11 @@
 //
 // The embedded tree is web/dist, produced by `npm run build` in this directory.
 // A committed dist/.gitkeep ensures `go build` works before the web app is
-// built; in that state the binary simply has no UI to serve. The Dockerfile and
-// CI build the web app first so a real dashboard is embedded.
+// built — embed refuses to compile against an empty directory — and in that
+// state the binary simply has no UI to serve. The same placeholder is kept in
+// public/, which Vite copies back into dist on every build, so building the
+// dashboard does not delete it. The Dockerfile and CI build the web app first
+// so a real dashboard is embedded.
 package web
 
 import (

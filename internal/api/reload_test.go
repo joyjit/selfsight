@@ -52,7 +52,7 @@ func TestReloadSwapsConfig(t *testing.T) {
 
 	writeConfig(t, path, "devices:\n  - {name: alpha, host: h1, username: u}\n  - {name: beta, host: h2, username: u}\n")
 	rr := httptest.NewRecorder()
-	s.ServeHTTP(rr, httptest.NewRequest(http.MethodPost, "/api/config/reload", nil))
+	s.ServeHTTP(rr, apiRequest(http.MethodPost, "/api/config/reload", nil))
 	if rr.Code != http.StatusOK {
 		t.Fatalf("reload: want 200, got %d: %s", rr.Code, rr.Body.String())
 	}
@@ -73,7 +73,7 @@ func TestReloadRejectsBadConfigAndKeepsOld(t *testing.T) {
 
 	writeConfig(t, path, "devices: [{name: broken}]\n") // host/username missing
 	rr := httptest.NewRecorder()
-	s.ServeHTTP(rr, httptest.NewRequest(http.MethodPost, "/api/config/reload", nil))
+	s.ServeHTTP(rr, apiRequest(http.MethodPost, "/api/config/reload", nil))
 	if rr.Code != http.StatusBadRequest {
 		t.Fatalf("bad config must 400, got %d: %s", rr.Code, rr.Body.String())
 	}
@@ -85,7 +85,7 @@ func TestReloadRejectsBadConfigAndKeepsOld(t *testing.T) {
 func TestReloadDisabledWithoutPath(t *testing.T) {
 	s := New(testConfig(), nil, t.TempDir())
 	rr := httptest.NewRecorder()
-	s.ServeHTTP(rr, httptest.NewRequest(http.MethodPost, "/api/config/reload", nil))
+	s.ServeHTTP(rr, apiRequest(http.MethodPost, "/api/config/reload", nil))
 	if rr.Code != http.StatusNotImplemented {
 		t.Fatalf("want 501 when reload is not enabled, got %d", rr.Code)
 	}
@@ -118,7 +118,7 @@ func TestReloadDropsOnlyStaleManagers(t *testing.T) {
 		"  - {name: rehost, host: h9, username: u, password: p}", // host changed
 	}, "\n")+"\n")
 	rr := httptest.NewRecorder()
-	s.ServeHTTP(rr, httptest.NewRequest(http.MethodPost, "/api/config/reload", nil))
+	s.ServeHTTP(rr, apiRequest(http.MethodPost, "/api/config/reload", nil))
 	if rr.Code != http.StatusOK {
 		t.Fatalf("reload: %d: %s", rr.Code, rr.Body.String())
 	}

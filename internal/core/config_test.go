@@ -261,3 +261,44 @@ func TestLoadRejectsTraversingDeviceName(t *testing.T) {
 		t.Fatal("config with a traversing device name must fail to load")
 	}
 }
+
+// A host is dialed and it names the driver's on-disk caches, so anything that
+// is not a plain address has to be refused where every address enters.
+func TestValidateHost(t *testing.T) {
+	bad := []string{
+		"",                      // required
+		"..",                    // traversal
+		"../../etc/passwd",      // traversal with separators
+		"a/b",                   // path separator
+		`a\b`,                   // windows separator
+		"host name",             // space
+		"host\nname",            // control character
+		"192.0.2.20:0",          // port out of range
+		"192.0.2.20:70000",      // port out of range
+		"192.0.2.20:http",       // non-numeric port
+		"-leading-dash.example", // not a legal label
+		"double..dot",           // empty label
+		strings.Repeat("x", HostMax+1),
+	}
+	for _, host := range bad {
+		if err := ValidateHost(host); err == nil {
+			t.Errorf("host %q should be rejected, was accepted", host)
+		}
+	}
+	good := []string{
+		"192.0.2.20", "192.0.2.20:8443", "ap1", "ap1.example.com",
+		"ap1.example.com.", "::1", "[::1]:443", "fe80::1",
+	}
+	for _, host := range good {
+		if err := ValidateHost(host); err != nil {
+			t.Errorf("host %q should be accepted: %v", host, err)
+		}
+	}
+}
+
+func TestLoadRejectsTraversingHost(t *testing.T) {
+	cfg := "devices:\n  - name: ap1\n    host: ../../escape\n    username: admin\n    password: pw\n"
+	if _, err := parseConfig([]byte(cfg)); err == nil {
+		t.Fatal("config with a traversing host must fail to load")
+	}
+}
