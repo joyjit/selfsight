@@ -1,0 +1,22 @@
+# Sanitizer replacement map — copy to map.yaml (gitignored) and fill in YOUR
+# real values on the left. MACs and private IPs are handled automatically by
+# shape; this map is for everything the tool can't recognize by shape:
+# serials, SSIDs, hostnames, usernames, passwords, session tokens.
+#
+# Longest keys are applied first, so "NETGEAR-Kitchen" is replaced before
+# "NETGEAR". The values on the right are the fakes that land in the fixtures.
+#
+#   selfsight sanitize --in <raw> --out testdata/wax610 --map map.yaml
+#
+# map.yaml holds real secrets: it is gitignored. Never commit it.
+
+replace:
+  # "<your real value>": "<fake to publish>"
+  "NETGEAR-Kitchen": "ExampleNet"
+  "MyGuestWiFi": "GuestNet"
+  "5ND1234ABCDEF": "SERIAL0000001"
+  "admin-password-here": "REDACTED-PASS"
+  "my-wifi-passphrase": "example-passphrase"
+  # add every real SSID, serial, hostname, and credential that appears in the
+  # captured bodies. When in doubt, add it — the --check pass only catches
+  # MAC/IP residue, not names.

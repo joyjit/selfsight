@@ -1,0 +1,23 @@
+# Lint config for selfsight. Boring, mainstream linters only (DESIGN.md,
+# principle 5). Kept small so contributors aren't fighting the linter.
+run:
+  timeout: 3m
+
+linters:
+  enable:
+    - errcheck
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+    - gofmt
+    - goimports
+    - misspell
+    - gosec
+
+issues:
+  exclude-rules:
+    # testdata holds sanitized device transcripts, not Go code.
+    - path: testdata/
+      linters:
+        - all

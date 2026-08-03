@@ -1,0 +1,12 @@
+{
+  "system": {
+    "monitor": {
+      "productId": "",
+      "fwType": "",
+      "powerSource": ""
+    },
+    "basicSettings": {
+      "apName": ""
+    }
+  }
+}

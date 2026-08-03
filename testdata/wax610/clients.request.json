@@ -1,0 +1,10 @@
+{
+  "system": {
+    "monitor": {
+      "radioApStatus": {
+        "totalNumberOfStations": ""
+      },
+      "clientList": ""
+    }
+  }
+}

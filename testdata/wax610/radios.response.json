@@ -1,0 +1,1 @@
+{ "status": 0, "system": { "wlanSettings": { "wlanSettingTable": { "wlan0": { "radioStatus": "1", "maxWirelessClients": "200" }, "wlan1": { "radioStatus": "1", "maxWirelessClients": "200" } } } } }

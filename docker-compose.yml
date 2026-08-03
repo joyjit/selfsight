@@ -1,0 +1,39 @@
+# selfsight — reference deployment.
+#
+#   1. mkdir -p config data
+#   2. cp config.example.yaml config/config.yaml   # edit for your APs
+#   3. cp .env.example .env                         # set the passwords it references
+#   4. docker compose up -d --build                 # dashboard on :8080
+#
+# config.yaml can keep secrets out of the file by referencing ${VARS} that you
+# define in .env (see config.example.yaml). Only its non-secret fields then need
+# to live in the file.
+
+services:
+  selfsight:
+    build: .
+    # From the first tagged release onward there is a published image, so you
+    # can drop `build:` and use instead:
+    #   image: ghcr.io/joyjit/selfsight:latest
+    container_name: selfsight
+    # Run as the uid/gid that owns ./config and ./data on the host. Required
+    # because cap_drop: ALL removes root's DAC_OVERRIDE, so a root process
+    # couldn't write host-owned volumes. Override in .env if yours isn't 1000.
+    user: "${SELFSIGHT_UID:-1000}:${SELFSIGHT_GID:-1000}"
+    env_file: .env
+    environment:
+      # That uid has no home in the image; keep the session/pin cache on the
+      # writable, persisted data volume.
+      - XDG_CACHE_HOME=/data/.cache
+    ports:
+      - "${SELFSIGHT_PORT:-8080}:8080"
+    volumes:
+      # config.yaml lives in ./config. Mounted read-write so the dashboard's
+      # add/edit/remove-device actions can update it; for strict GitOps (edit
+      # in git, never from the UI) append `:ro`.
+      - ./config:/config
+      - ./data:/data          # device config backups
+    restart: unless-stopped
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true

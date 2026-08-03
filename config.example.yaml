@@ -1,0 +1,64 @@
+# selfsight example configuration.
+#
+# Copy to config.yaml, edit for your APs, and mount it at /config (Docker) or
+# pass its path. You can also let selfsight edit it from the UI (add/remove/
+# update a device) — it changes only the one entry involved, keeps your
+# comments, and backs up the previous file first. Hand-editing still works.
+#
+# Only fields you declare are managed. Omit a section to leave it untouched.
+#
+# Passwords: normally you never edit these by hand — add a device from the
+# dashboard and selfsight writes the entry for you, password included. Written
+# literally, so chmod 600 config.yaml since it then holds device passwords.
+#
+# Optionally, any value may instead reference an environment variable as
+# ${VAR}, expanded when the config loads (an unset ${VAR} fails loudly at
+# startup). That is for keeping this file committable to a deploy repo with the
+# real secrets in a .env; editing a device from the UI preserves the reference
+# rather than replacing it with the expanded secret.
+
+server:
+  listen: ":8080"          # optional; this is the default
+  # auth:                  # optional: password-protect the dashboard/API.
+  #   password: ${SELFSIGHT_AUTH_PASSWORD}  # recommended before enabling writes
+  #
+  # Backups are taken when a device's config changes — before any change
+  # selfsight makes, when it detects one made on the AP directly, and on demand
+  # — never on a fixed schedule. backupCheck only tunes how often the
+  # out-of-band check runs; an unchanged config is never stored. Omit it for the
+  # defaults. Values are Go durations and may be ${VARS} (set them from .env).
+  # backupCheck:
+  #   startupDelay: 2m     # first check this long after startup (default 2m)
+  #   interval: 6h         # routine check cadence (default 6h; minimum 1m)
+
+devices:
+  - name: living-room      # required, unique
+    host: 192.0.2.20       # required; AP address on your LAN
+    model: WAX610
+    # serial: 1AB234CD5678  # optional: pins this entry to a physical unit.
+    #                       # Recorded automatically when you adopt via the UI's
+    #                       # connection test; checked before apply/restore/
+    #                       # upgrade so a host that now points at different
+    #                       # hardware never receives this entry's config.
+    username: admin        # required
+    password: "change-me"  # or ${LIVING_ROOM_PW}; see DESIGN.md "Security"
+    desired:               # optional; drift is only checked for what you declare
+      ssids:
+        - name: HomeNet
+          vlan: 1
+          security: wpa2-psk
+          passphrase: "change-me-too"
+          hidden: false    # optional (omit = not managed): broadcast the SSID
+          enabled: true    # optional (omit = not managed): the network is active
+      radios:
+        # channel: "auto" (or omitted) means "don't manage the exact channel".
+        # enabled turns the whole radio on/off — omit to leave it unmanaged.
+        # power is recorded but not applied yet (device value codes unmapped).
+        2g: { channel: auto }
+        5g: { channel: "44", enabled: true }
+
+  # - name: garage
+  #   host: 192.0.2.21
+  #   model: WAX610
+  #   username: admin
+  #   password: "change-me"

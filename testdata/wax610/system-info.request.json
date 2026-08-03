@@ -1,0 +1,74 @@
+{
+  "system": {
+    "monitor": {
+      "channelWidth": {
+        "wlan0": "",
+        "wlan1": ""
+      },
+      "operateMode": {
+        "wlan0": "",
+        "wlan1": ""
+      },
+      "currentChannel": {
+        "wlan0": "",
+        "wlan1": ""
+      },
+      "radioApStatus": {
+        "wlan0": {
+          "numberOfStations": ""
+        },
+        "wlan1": {
+          "numberOfStations": ""
+        }
+      },
+      "stats": {
+        "wlan0": {
+          "traffic": "",
+          "channelUtil": "",
+          "selfChannelUtil": "",
+          "obssChannelUtil": ""
+        },
+        "wlan1": {
+          "traffic": "",
+          "channelUtil": "",
+          "selfChannelUtil": "",
+          "obssChannelUtil": ""
+        },
+        "lan": {
+          "traffic": ""
+        }
+      },
+      "lanStatus": {
+        "eth0": ""
+      },
+      "internetConnectivityStatus": "",
+      "totalNumberOfDevices": "",
+      "wdsMode": "",
+      "sysSerialNumber": "",
+      "ethernetMacAddress": "",
+      "sysVersion": "",
+      "defaultGateway": "",
+      "sysCountryRegion": "",
+      "defaultGatewayStatus": "",
+      "ipAddress": "",
+      "DeviceInfo": {
+        "UpTime": ""
+      },
+      "FiveGhzSupport": {
+        "wlan1": ""
+      },
+      "FiveGHzLowHighSupport": {
+        "wlan": ""
+      }
+    },
+    "basicSettings": {
+      "deviceMode": "",
+      "cloudStatus": "",
+      "apName": "",
+      "sysCountryRegion": "",
+      "dhcpClientStatus": "",
+      "engageStatus": "",
+      "fqdn": ""
+    }
+  }
+}

@@ -1,0 +1,34 @@
+.env
+
+# Runtime deployment state — a user's real config (may hold AP passwords) and
+# the backups/config dirs. Only config.example.yaml / .env.example are tracked.
+/config/
+/data/
+/config.yaml
+config.yaml.bak-*
+
+# Local, private agent notes (deployment specifics, AP IPs/names) — never commit.
+MEMORY.md
+
+# Safety net: raw device captures and sanitizer maps hold real secrets and must
+# never be committed. Only sanitized files under testdata/ ever enter the repo.
+*.har
+/map.yaml
+/map.local.yaml
+selfsight-capture/
+raw-capture*/
+
+# Project docs and agent instructions are public in this repo. These
+# negations exist so a checkout whose user-level ignore rules keep such
+# files untracked still sees them as part of the project.
+!/REQUIREMENTS.md
+!/PLAN.md
+!/AGENTS.md
+!/CLAUDE.md
+
+# Frontend
+node_modules/
+# Built dashboard is a build artifact, but keep the dir + placeholder so
+# go:embed compiles before a web build has run.
+web/dist/*
+!web/dist/.gitkeep

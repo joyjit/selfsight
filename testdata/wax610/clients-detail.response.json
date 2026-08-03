@@ -1,0 +1,7 @@
+{ "status": 0, "system": { "monitor": { "optCliList": {
+  "wlan0": { "3146087": [ ] },
+  "wlan1": { "3146087": [
+    { "ip": "192.0.2.126", "mac": "AA-BB-CC-10-4F-8B", "hname": "living-laptop", "ssid": "example.com", "dOs": "Generic Linux", "mode": "11AC", "vlanID": "1", "Username": "Not Applicable" },
+    { "ip": "192.0.2.154", "mac": "AA-BB-CC-10-82-F3", "hname": "AA-BB-CC-10-82-F3", "ssid": "example.com", "dOs": "iOS", "mode": "11AC", "vlanID": "1", "Username": "Not Applicable" }
+  ] }
+} } } }

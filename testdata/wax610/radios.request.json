@@ -1,0 +1,16 @@
+{
+  "system": {
+    "wlanSettings": {
+      "wlanSettingTable": {
+        "wlan0": {
+          "radioStatus": "",
+          "maxWirelessClients": ""
+        },
+        "wlan1": {
+          "radioStatus": "",
+          "maxWirelessClients": ""
+        }
+      }
+    }
+  }
+}
