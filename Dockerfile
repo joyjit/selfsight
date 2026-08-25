@@ -6,8 +6,8 @@
 # --- web: build the dashboard into web/dist ---
 FROM node:20-alpine AS web
 WORKDIR /src/web
-COPY web/package.json web/package-lock.json* ./
-RUN npm ci || npm install
+COPY web/package.json web/package-lock.json ./
+RUN npm ci
 COPY web/ ./
 RUN npm run build
 
