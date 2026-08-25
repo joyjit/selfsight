@@ -52,20 +52,13 @@ func (s *Server) upgradeFor(name string) *upgradeState {
 	return u
 }
 
-// upgradeInProgress reports whether ANY device is mid-upgrade. Firmware
-// upgrades run strictly one AP at a time across the whole fleet — flashing two
-// APs at once risks taking down the network that carries the upgrade itself.
-//
-// This is for reporting only (the progress endpoint). Deciding whether an
-// upgrade may start must go through claimUpgrade: a separate check and act
-// leaves a window in which two requests both see an idle fleet.
-func (s *Server) upgradeInProgress() (string, bool) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.runningUpgradeLocked()
-}
-
 // runningUpgradeLocked names the device currently upgrading. Caller holds s.mu.
+//
+// Firmware upgrades run strictly one AP at a time across the whole fleet —
+// flashing two APs at once risks taking down the network that carries the
+// upgrade itself. Deciding whether an upgrade may start must go through
+// claimUpgrade rather than calling this directly: a separate check and act
+// leaves a window in which two requests both see an idle fleet.
 func (s *Server) runningUpgradeLocked() (string, bool) {
 	for name, u := range s.upgrades {
 		u.mu.Lock()
@@ -254,6 +247,8 @@ func (s *Server) handleFirmwareUpgrade(w http.ResponseWriter, r *http.Request) {
 
 	dm := s.managerFor(dev)
 	backupDir := s.deviceDataDir(dev.Name)
+	//nolint:gosec // G118: detaching from the request context is the point —
+	// see the comment below.
 	go func() {
 		// Detached from the HTTP request: the upgrade outlives it by minutes.
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)

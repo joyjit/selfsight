@@ -1,23 +1,65 @@
 # Lint config for selfsight. Boring, mainstream linters only (DESIGN.md,
 # principle 5). Kept small so contributors aren't fighting the linter.
-run:
-  timeout: 3m
+#
+# Format version 2 (golangci-lint v2+). Note that errcheck, govet, ineffassign,
+# staticcheck and unused are on by default in v2, so they are not listed here;
+# gofmt and goimports moved to their own `formatters` section.
+version: "2"
 
 linters:
   enable:
-    - errcheck
-    - govet
-    - ineffassign
-    - staticcheck
-    - unused
+    - gosec
+    - misspell
+  settings:
+    gosec:
+      # gosec's taint-analysis rules are off. Two reasons, in order:
+      #
+      # 1. They are not deterministic in v2.13.1. On identical source with a
+      #    cold cache, G703 reported three findings in internal/api/history.go
+      #    on roughly one run in three and none on the others. A check that
+      #    fails at random is worse than no check — it teaches people to rerun
+      #    CI until it goes green.
+      # 2. What they look for is already enforced, and tested. Every path they
+      #    flagged is built from a device name that has passed
+      #    core.ValidateDeviceName, which admits a single safe path element
+      #    (letters, digits, dot, dash, underscore — no separators, no ".."),
+      #    and config loading refuses anything else. See the traversal cases in
+      #    internal/core/config_test.go.
+      #
+      # Worth revisiting when a later gosec makes these stable.
+      excludes:
+        - G703 # path traversal via taint analysis
+        - G706 # log injection via taint analysis
+  exclusions:
+    generated: lax
+    # These four are golangci-lint's own default exclusion sets, which v1
+    # applied implicitly. Listed explicitly because v2 does not.
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
+    rules:
+      # testdata holds sanitized device transcripts, not Go code.
+      - path: testdata/
+        linters: [all]
+      # Tests stand up throwaway HTTP servers and hand them deliberately
+      # simple cookies and forms. gosec's hardening rules are aimed at
+      # production handlers and only add noise here.
+      - path: _test\.go
+        linters: [gosec]
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
+
+formatters:
+  enable:
     - gofmt
     - goimports
-    - misspell
-    - gosec
-
-issues:
-  exclude-rules:
-    # testdata holds sanitized device transcripts, not Go code.
-    - path: testdata/
-      linters:
-        - all
+  exclusions:
+    generated: lax
+    paths:
+      - third_party$
+      - builtin$
+      - examples$

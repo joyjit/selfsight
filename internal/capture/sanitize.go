@@ -92,6 +92,8 @@ Then eyeball every output file before committing (git history is permanent).
 			return fmt.Errorf("read %s: %w", e.Name(), err)
 		}
 		clean := s.scrub(raw)
+		//nolint:gosec // G306: sanitized fixtures are committed to the repo and
+		// meant to be world-readable; they contain no secrets by construction.
 		if err := os.WriteFile(filepath.Join(*outDir, e.Name()), clean, 0o644); err != nil {
 			return fmt.Errorf("write %s: %w", e.Name(), err)
 		}
