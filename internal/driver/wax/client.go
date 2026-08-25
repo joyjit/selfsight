@@ -73,6 +73,14 @@ func New(host string, opts ...Option) *Client {
 	// Pinning hooks into our own transport; a caller-supplied client (tests)
 	// brings its own trust and is left alone.
 	if c.pinPath != "" && c.http == own {
+		// VerifyPeerCertificate is skipped on a resumed TLS session, which
+		// would let a resumed connection dodge the pin check. It cannot happen
+		// here: Go only resumes when tls.Config.ClientSessionCache is set,
+		// net/http never sets one, and neither do we — so every connection is
+		// a full handshake and the pin is always checked. Keep it that way; if
+		// a session cache is ever added, move this to VerifyConnection, which
+		// runs on resumed handshakes too.
+		//nolint:gosec // G123: resumption is off, see above.
 		tr.TLSClientConfig.VerifyPeerCertificate = c.verifyPin
 	}
 	return c

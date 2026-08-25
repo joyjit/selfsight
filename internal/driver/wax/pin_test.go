@@ -77,9 +77,15 @@ func TestCachePathsAreSafeAndStable(t *testing.T) {
 			seen[p] = host
 		}
 	}
-	// Stable, so a device keeps its own cache across restarts.
-	if PinPathIn(base, "ap1") != PinPathIn(base, "ap1") {
-		t.Error("a host's cache path must not change between calls")
+	// Stable, so a device keeps its own cache across restarts. Held in
+	// variables rather than compared inline: two identical calls side by side
+	// read as a tautology (and staticcheck flags them as one), but the point
+	// is that the path is derived from the host alone, with nothing random or
+	// time-based mixed in.
+	first := PinPathIn(base, "ap1")
+	second := PinPathIn(base, "ap1")
+	if first != second {
+		t.Errorf("a host's cache path must not change between calls: %s then %s", first, second)
 	}
 	// A pin and a session are separate files.
 	if PinPathIn(base, "ap1") == SessionPathIn(base, "ap1") {

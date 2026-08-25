@@ -230,6 +230,9 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	s.auth.sessions[token] = now.Add(sessionTTL)
 	s.auth.mu.Unlock()
 
+	//nolint:gosec // G124: HttpOnly and SameSite are set; Secure is deliberately
+	// conditional. selfsight is commonly reached over plain HTTP on a LAN, where
+	// an unconditional Secure would stop the browser returning the cookie at all.
 	http.SetCookie(w, &http.Cookie{
 		Name: sessionCookie, Value: token, Path: "/",
 		HttpOnly: true, SameSite: http.SameSiteLaxMode,
@@ -312,6 +315,7 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 		delete(s.auth.sessions, ck.Value)
 		s.auth.mu.Unlock()
 	}
+	//nolint:gosec // G124: see the note on the login cookie above.
 	http.SetCookie(w, &http.Cookie{
 		Name: sessionCookie, Value: "", Path: "/",
 		HttpOnly: true, SameSite: http.SameSiteLaxMode,
